@@ -2493,13 +2493,19 @@ def _build_block_tables_from_paged_kv_indices(
     """Stage shared K/V page mappings during plan, reusing output capacity."""
     offsets = paged_kv_indptr_host.tolist()[: batch_size + 1]
     spans = list(zip(offsets, offsets[1:], strict=False))
+    max_pages = max((end - start for start, end in spans), default=0)
     if out is None:
-        max_pages = max(end - start for start, end in spans)
         out = torch.empty((batch_size, max_pages), dtype=torch.int32, device=device)
+    elif out.shape[0] < batch_size or out.shape[1] < max_pages:
+        raise ValueError(
+            "A retained block table cannot grow during staging; "
+            "pass a buffer sized for the largest plan."
+        )
     indices = paged_kv_indices.to(device)
     rows, width = out.shape
     if (
-        len(spans) == batch_size == rows
+        spans
+        and len(spans) == batch_size == rows
         and offsets[-1] - offsets[0] == batch_size * width
         and all(end - start == width for start, end in spans)
     ):

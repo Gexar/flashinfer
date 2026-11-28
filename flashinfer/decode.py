@@ -59,6 +59,7 @@ from .jit import (
 )
 from .page import get_seq_lens
 from .prefill import (
+    _build_block_tables_from_paged_kv_indices,
     get_batch_prefill_jit_module,
     get_batch_prefill_module,
     get_single_prefill_module,
@@ -908,32 +909,13 @@ def _make_block_tables_from_indptr(
     *,
     block_tables: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
-    blocks_per_seq = (
-        indptr_host[1 : batch_size + 1] - indptr_host[:batch_size]
-    ).tolist()
-    max_blocks_per_seq = max(blocks_per_seq) if blocks_per_seq else 0
-    if block_tables is None:
-        block_tables = torch.zeros(
-            (batch_size, max_blocks_per_seq), dtype=torch.int32, device=device
+    if block_tables is not None and block_tables.shape[0] != batch_size:
+        raise ValueError(
+            "Retained decode block table must match the planned batch size"
         )
-    else:
-        if (
-            block_tables.shape[0] != batch_size
-            or block_tables.shape[1] < max_blocks_per_seq
-        ):
-            raise ValueError(
-                "XQA MTP CUDA graph block table cannot grow after planning; "
-                "pass a fixed block_tables sized for the longest sequence "
-                "the graph will see."
-            )
-        block_tables.zero_()
-    indptr_list = indptr_host.tolist()
-    for i, num_blocks in enumerate(blocks_per_seq):
-        if num_blocks == 0:
-            continue
-        start = indptr_list[i]
-        block_tables[i, :num_blocks] = indices[start : start + num_blocks]
-    return block_tables
+    return _build_block_tables_from_paged_kv_indices(
+        indptr_host, indices, batch_size, device, out=block_tables
+    )
 
 
 def _is_xqa_mtp_decode_supported(

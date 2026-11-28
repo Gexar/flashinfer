@@ -656,16 +656,20 @@ def test_xqa_mtp_causal_mask_q_len_two():
 
 
 @pytest.mark.cpu_only
-def test_xqa_mtp_block_tables_from_indptr_preserves_offset():
-    indptr_host = torch.tensor([2, 4, 7], dtype=torch.int32)
-    indices = torch.arange(10, dtype=torch.int32)
+@pytest.mark.parametrize(
+    "offsets,expected",
+    [([2, 4, 6], [[2, 3], [4, 5]]), ([2, 4, 7], [[2, 3, 0], [4, 5, 6]])],
+)
+def test_xqa_mtp_block_tables_from_indptr_preserves_offset(offsets, expected):
+    indptr_host = torch.tensor(offsets, dtype=torch.int32)
+    indices = torch.arange(10, dtype=torch.int32).repeat_interleave(2)[::2]
 
     block_tables = flashinfer.decode._make_block_tables_from_indptr(
         indptr_host, indices, 2, torch.device("cpu")
     )
 
     assert block_tables.dtype == torch.int32
-    assert block_tables.tolist() == [[2, 3, 0], [4, 5, 6]]
+    assert block_tables.tolist() == expected
 
 
 @pytest.mark.cpu_only
@@ -698,6 +702,18 @@ def test_xqa_mtp_block_tables_replan_preserves_storage():
             torch.device("cpu"),
             block_tables=table,
         )
+    assert table.tolist() == [[6, 0, 0], [5, 4, 0]]
+
+
+@pytest.mark.cpu_only
+def test_xqa_mtp_block_tables_empty():
+    table = flashinfer.decode._make_block_tables_from_indptr(
+        torch.tensor([0], dtype=torch.int32),
+        torch.empty(0, dtype=torch.int32),
+        0,
+        torch.device("cpu"),
+    )
+    assert table.shape == (0, 0)
 
 
 @pytest.mark.cpu_only
